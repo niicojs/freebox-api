@@ -1,14 +1,14 @@
 // @ts-check
-const fs = require('fs').promises;
-const https = require('https');
-const crypto = require('crypto');
-const axios = require('axios').default;
+import { promises as fs } from 'fs';
+import https from 'https';
+import crypto from 'crypto';
+import axios from 'axios';
 
 const appinfos = {
-  app_id: 'fr.niico.gladys',
-  app_name: 'Gladys',
-  app_version: '0.0.7',
-  device_name: 'gladys',
+  app_id: 'fr.niico.freebox',
+  app_name: 'niico',
+  app_version: '0.0.1',
+  device_name: 'niico',
 };
 
 const log = (msg) => {
@@ -30,8 +30,6 @@ const init = async () => {
     const content = await fs.readFile('auth.json', 'utf8');
     return JSON.parse(content);
   } catch (e) {
-    log('init error');
-    console.error(e);
     return null;
   }
 };
@@ -63,7 +61,7 @@ const pair = async () => {
   const baseURL = await getInfos();
   const client = await buildClient(baseURL);
   const auth = await authorize(client);
-  const data = { infos: { baseURL }, auth };
+  const data = { baseURL, auth };
   await fs.writeFile('auth.json', JSON.stringify(data), 'utf8');
   return data;
 };
@@ -120,6 +118,29 @@ const getDevices = async (client) => {
   return response.data.result;
 };
 
+const getPlayers = async (client) => {
+  const response = await client.get('/player');
+  if (!response.data.success) throw new Error('get players');
+  return response.data.result.map((p) => {
+    const version = p.api_version.substring(0, p.api_version.indexOf('.'));
+    p.baseUrl = `player/${p.id}/api/v${version}`;
+    return p;
+  });
+};
+
+const getPlayerState = async (client, player) => {
+  const response = await client.get(`${player.baseUrl}/status`);
+  if (!response.data.success) throw new Error('get player state');
+  return response.data.result;
+};
+
+const playerLaunch = async (client, player, url) => {
+  const response = await client.post(`${player.baseUrl}/control/open`, { url });
+  if (!response.data.success) throw new Error('launch');
+  log(response)
+  return response.data.result;
+};
+
 (async () => {
   let infos = await init();
   if (!infos) {
@@ -128,11 +149,23 @@ const getDevices = async (client) => {
     log('pairing ok');
   }
   const client = await buildClient(infos.baseURL);
-  const token = await login(client, infos.auth);
+  await login(client, infos.auth);
   log('logged in');
 
-  const devices = await getDevices(client);
-  const connected = devices.filter((d) => d.active);
+  // const devices = await getDevices(client);
+  // const connected = devices.filter((d) => d.active);
 
-  log(`${devices.length} devices, ${connected.length} connectés.`);
+  // log(`${devices.length} devices, ${connected.length} connectés.`);
+
+  const players = await getPlayers(client);
+
+  for (const player of players) {
+    const state = await getPlayerState(client, player);
+    log(state);
+  }
+
+  const player = players[0];
+  await playerLaunch(client, player, 'app:com.netflix');
+
+  log('done.')
 })();
